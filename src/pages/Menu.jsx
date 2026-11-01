@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   Search,
   ChevronUp,
@@ -13,38 +13,35 @@ import {
 } from 'lucide-react';
 import { useMenu } from '../hooks/useMenu';
 import { useCart } from '../context/CartContext';
+import CartDrawer from '../components/CartDrawer';
 
 export default function Menu() {
-  const { menuData, categories, loading, error } = useMenu();
+  const { menuData, categories, specialOffer, loading, error } = useMenu();
   const { updateItem, getItemQuantity, totalItems, totalPrice, showToast } = useCart();
-  const navigate = useNavigate();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [collapsedCategories, setCollapsedCategories] = useState({});
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [showOfferModal, setShowOfferModal] = useState(false);
+  const [isCartOpen, setIsCartOpen] = useState(false);
 
-  // Controlar aparición del botón "Volver arriba" al hacer scroll
   useEffect(() => {
-    const handleScroll = () => {
-      setShowBackToTop(window.scrollY > 300);
-    };
+    const handleScroll = () => setShowBackToTop(window.scrollY > 300);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Controlar el Modal de Oferta una vez por sesión (sin el bug del ID con espacio)
+  // Solo muestra el modal si hay una fila "OFERTA" activa en Google Sheets
   useEffect(() => {
-    if (!sessionStorage.getItem('ofertaVista')) {
+    if (specialOffer && !sessionStorage.getItem('ofertaVista')) {
       const timer = setTimeout(() => {
         setShowOfferModal(true);
         sessionStorage.setItem('ofertaVista', 'true');
-      }, 1500);
+      }, 1200);
       return () => clearTimeout(timer);
     }
-  }, []);
+  }, [specialOffer]);
 
-  // Alternar mostrar/ocultar una categoría
   const toggleCategory = (categoria) => {
     setCollapsedCategories((prev) => ({
       ...prev,
@@ -52,7 +49,6 @@ export default function Menu() {
     }));
   };
 
-  // Filtrar platos según el buscador de forma reactiva
   const filteredMenu = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
     if (!term) return menuData;
@@ -64,28 +60,28 @@ export default function Menu() {
           plato.nombre.toLowerCase().includes(term) ||
           plato.descripcion.toLowerCase().includes(term)
       );
-      if (matches.length > 0) {
-        result[categoria] = matches;
-      }
+      if (matches.length > 0) result[categoria] = matches;
     });
     return result;
   }, [menuData, searchTerm]);
 
   const visibleCategories = Object.keys(filteredMenu);
 
-  const handleGoToCheckout = (e) => {
-    e.preventDefault();
-    if (totalItems === 0) {
-      showToast('Tu carrito está vacío. Agrega algún plato primero.');
-      return;
+  // Si la oferta tiene precio > 0, la agrega al carrito y abre el panel lateral
+  const handleAcceptOffer = () => {
+    if (specialOffer.precio > 0) {
+      updateItem(specialOffer, 1);
+      showToast(`¡${specialOffer.nombre} agregado al pedido!`, 'success');
+      setShowOfferModal(false);
+      setIsCartOpen(true);
+    } else {
+      setShowOfferModal(false);
     }
-    navigate('/checkout');
   };
 
   return (
     <div className="min-h-screen bg-soft-gray text-forest pb-28 pt-14">
-      {/* Barra de navegación fija superior con categorías dinámicas */}
-      <nav className="fixed top-0 left-0 w-full bg-forest text-white z-40 shadow-md">
+      <nav className="fixed top-0 left-0 w-full bg-forest text-white z-30 shadow-md">
         <div className="max-w-5xl mx-auto px-3 py-2.5 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
           <Link
             to="/"
@@ -109,7 +105,6 @@ export default function Menu() {
         </div>
       </nav>
 
-      {/* Cabecera con Logo */}
       <header className="flex flex-col items-center pt-6 pb-2 px-4">
         <div className="w-28 h-28 rounded-full overflow-hidden border-2 border-gold shadow-md bg-white">
           <img
@@ -120,7 +115,6 @@ export default function Menu() {
         </div>
       </header>
 
-      {/* Buscador */}
       <div className="w-11/12 max-w-xl mx-auto my-5 relative">
         <Search className="w-5 h-5 text-gold absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
         <input
@@ -140,9 +134,7 @@ export default function Menu() {
         )}
       </div>
 
-      {/* Contenido Principal */}
       <main className="max-w-5xl mx-auto px-4">
-        {/* Estado de Carga (Skeletons) */}
         {loading && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
             {[1, 2, 3, 4].map((n) => (
@@ -161,21 +153,18 @@ export default function Menu() {
           </div>
         )}
 
-        {/* Estado de Error */}
         {error && (
           <div className="text-center bg-red-50 border border-red-200 text-red-700 p-6 rounded-xl my-8">
             <p className="font-semibold">{error}</p>
           </div>
         )}
 
-        {/* Sin resultados en búsqueda */}
         {!loading && !error && visibleCategories.length === 0 && (
           <div className="text-center py-12 text-gray-500">
             <p className="text-lg">No encontramos platos que coincidan con "{searchTerm}".</p>
           </div>
         )}
 
-        {/* Listado Dinámico de Categorías y Platos */}
         {!loading &&
           !error &&
           visibleCategories.map((categoria) => {
@@ -189,11 +178,12 @@ export default function Menu() {
                   <h2 className="text-2xl font-bold text-forest border-b-2 border-gold pb-1">
                     {categoria}
                   </h2>
-                  <button
-                    aria-label="Alternar categoría"
-                    className="text-forest group-hover:text-gold transition"
-                  >
-                    {isCollapsed ? <ChevronDown className="w-6 h-6" /> : <ChevronUp className="w-6 h-6" />}
+                  <button className="text-forest group-hover:text-gold transition">
+                    {isCollapsed ? (
+                      <ChevronDown className="w-6 h-6" />
+                    ) : (
+                      <ChevronUp className="w-6 h-6" />
+                    )}
                   </button>
                 </div>
 
@@ -206,7 +196,6 @@ export default function Menu() {
                           key={plato.id}
                           className="bg-white rounded-xl p-3.5 shadow-sm hover:shadow-md transition flex items-center justify-between gap-4 border border-gray-100"
                         >
-                          {/* Información del plato */}
                           <div className="flex flex-col flex-1 text-left">
                             <h3 className="font-bold text-base md:text-lg text-forest leading-snug">
                               {plato.nombre}
@@ -220,7 +209,6 @@ export default function Menu() {
                               RD$ {plato.precio.toLocaleString('es-DO')}
                             </span>
 
-                            {/* Controles del carrito */}
                             <div className="flex items-center gap-3 mt-3">
                               <button
                                 onClick={() => updateItem(plato, -1)}
@@ -247,7 +235,6 @@ export default function Menu() {
                             </div>
                           </div>
 
-                          {/* Imagen del plato con fallback automático si falla el link */}
                           {plato.imagen && (
                             <img
                               src={plato.imagen}
@@ -268,10 +255,10 @@ export default function Menu() {
           })}
       </main>
 
-      {/* Barra Flotante del Carrito (muestra cantidad y subtotal en RD$) */}
+      {/* Botón Flotante que ahora abre el Carrito Lateral */}
       <button
-        onClick={handleGoToCheckout}
-        className="fixed bottom-5 left-5 bg-forest text-white px-5 py-3.5 rounded-full font-bold flex items-center gap-3 shadow-2xl border-2 border-gold hover:bg-gold hover:text-forest transition-all z-40 cursor-pointer"
+        onClick={() => setIsCartOpen(true)}
+        className="fixed bottom-5 left-5 bg-forest text-white px-5 py-3.5 rounded-full font-bold flex items-center gap-3 shadow-2xl border-2 border-gold hover:bg-gold hover:text-forest transition-all z-30 cursor-pointer"
       >
         <ShoppingBag className="w-5 h-5" />
         <span>Ver Pedido</span>
@@ -285,22 +272,21 @@ export default function Menu() {
         )}
       </button>
 
-      {/* Botón Volver Arriba */}
       {showBackToTop && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label="Volver arriba"
-          className="fixed bottom-5 right-5 w-12 h-12 rounded-full bg-forest text-gold border-2 border-gold flex items-center justify-center shadow-xl hover:bg-gold hover:text-forest transition z-40 cursor-pointer"
+          className="fixed bottom-5 right-5 w-12 h-12 rounded-full bg-forest text-gold border-2 border-gold flex items-center justify-center shadow-xl hover:bg-gold hover:text-forest transition z-30 cursor-pointer"
         >
           <ArrowUp className="w-6 h-6" />
         </button>
       )}
 
-      {/* Modal de Oferta Especial */}
-      {showOfferModal && (
+      {/* Modal de Oferta conectado a Google Sheets */}
+      {showOfferModal && specialOffer && (
         <div
           onClick={() => setShowOfferModal(false)}
-          className="fixed inset-0 bg-forest/85 flex items-center justify-center p-4 z-50 animate-fadeIn"
+          className="fixed inset-0 bg-forest/85 flex items-center justify-center p-4 z-50"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -313,33 +299,47 @@ export default function Menu() {
               <X className="w-7 h-7" />
             </button>
 
-            <h2 className="text-2xl font-extrabold text-forest mb-3">
+            <span className="inline-block bg-gold/20 text-forest text-xs font-extrabold px-3 py-1 rounded-full mb-2 uppercase tracking-wider">
               ¡Oferta Especial!
+            </span>
+
+            <h2 className="text-2xl font-extrabold text-forest mb-3">
+              {specialOffer.nombre}
             </h2>
 
-            <img
-              src="/images/postres/brownie.webp"
-              alt="Oferta especial"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-              className="w-full h-40 object-cover rounded-xl mb-4"
-            />
+            {specialOffer.imagen && (
+              <img
+                src={specialOffer.imagen}
+                alt={specialOffer.nombre}
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+                className="w-full h-44 object-cover rounded-xl mb-4"
+              />
+            )}
 
             <p className="text-gray-700 text-sm leading-relaxed">
-              En la compra de cualquier plato fuerte, llévate un{' '}
-              <strong className="text-forest">Brownie a mitad de precio</strong>.
+              {specialOffer.descripcion}
             </p>
 
+            {specialOffer.precio > 0 && (
+              <p className="text-xl font-extrabold text-forest mt-3">
+                RD$ {specialOffer.precio.toLocaleString('es-DO')}
+              </p>
+            )}
+
             <button
-              onClick={() => setShowOfferModal(false)}
-              className="mt-5 w-full bg-forest text-white font-bold py-3 rounded-xl border-2 border-gold hover:bg-gold hover:text-forest transition cursor-pointer"
+              onClick={handleAcceptOffer}
+              className="mt-5 w-full bg-forest text-white font-bold py-3.5 rounded-xl border-2 border-gold hover:bg-gold hover:text-forest transition cursor-pointer"
             >
-              ¡PÍDELO AL ORDENAR!
+              {specialOffer.precio > 0 ? '¡AGREGAR A MI PEDIDO!' : '¡ENTENDIDO!'}
             </button>
           </div>
         </div>
       )}
+
+      {/* Carrito Lateral Deslizable */}
+      <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} />
     </div>
   );
 }

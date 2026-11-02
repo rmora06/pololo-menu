@@ -14,6 +14,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Send,
+  Banknote,
+  CreditCard,
 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 
@@ -22,7 +24,6 @@ const WHATSAPP_PHONE = import.meta.env.VITE_WHATSAPP_PHONE || '18295180484';
 export default function CartDrawer({ isOpen, onClose }) {
   const { cart, updateItem, clearCart, totalItems, totalPrice, showToast } = useCart();
 
-  // Controla si estamos viendo la lista de platos ('cart') o los datos de envío ('checkout')
   const [step, setStep] = useState('cart');
 
   const [customerName, setCustomerName] = useState('');
@@ -31,6 +32,11 @@ export default function CartDrawer({ isOpen, onClose }) {
   const [notes, setNotes] = useState('');
   const [mapsLink, setMapsLink] = useState('');
   const [gpsStatus, setGpsStatus] = useState({ loading: false, message: '', error: false });
+
+  // Nuevos estados para el pago en Delivery
+  const [paymentMethod, setPaymentMethod] = useState('Efectivo'); // 'Efectivo' | 'Verifone'
+  const [needsChange, setNeedsChange] = useState(false);
+  const [cashAmount, setCashAmount] = useState('');
 
   if (!isOpen) return null;
 
@@ -73,9 +79,27 @@ export default function CartDrawer({ isOpen, onClose }) {
       return;
     }
 
-    if (orderType === 'Delivery' && !address.trim() && !mapsLink) {
-      showToast('Comparte tu ubicación GPS o escribe tu dirección para el delivery.');
-      return;
+    const numericCash = Number(cashAmount);
+
+    if (orderType === 'Delivery') {
+      if (!address.trim() && !mapsLink) {
+        showToast('Comparte tu ubicación GPS o escribe tu dirección para el delivery.');
+        return;
+      }
+
+      // Validación estricta si paga en efectivo y necesita cambio
+      if (paymentMethod === 'Efectivo' && needsChange) {
+        if (!cashAmount || isNaN(numericCash)) {
+          showToast('Indica con qué monto en efectivo vas a pagar.');
+          return;
+        }
+        if (numericCash <= totalPrice) {
+          showToast(
+            `El monto para cambio debe ser mayor al total (RD$ ${totalPrice.toLocaleString('es-DO')}).`
+          );
+          return;
+        }
+      }
     }
 
     let message = `Hola, soy *${customerName.trim()}*.\n\nQuiero realizar el siguiente pedido:\n\n`;
@@ -93,10 +117,24 @@ export default function CartDrawer({ isOpen, onClose }) {
     if (orderType === 'Delivery') {
       if (address.trim()) message += `*Dirección / Referencia:* ${address.trim()}\n`;
       if (mapsLink) message += `*Ubicación GPS:* ${mapsLink}\n`;
+
+      message += `*Método de Pago:* ${
+        paymentMethod === 'Verifone' ? 'Tarjeta (Enviar Verifone)' : 'Efectivo'
+      }\n`;
+
+      if (paymentMethod === 'Efectivo') {
+        if (needsChange) {
+          const changeToReturn = numericCash - totalPrice;
+          message += `*Paga con:* RD$ ${numericCash.toLocaleString('es-DO')}\n`;
+          message += `*Devuelta a llevar:* RD$ ${changeToReturn.toLocaleString('es-DO')}\n`;
+        } else {
+          message += `*Detalle Efectivo:* Pago exacto (No requiere cambio)\n`;
+        }
+      }
     }
 
     if (notes.trim()) {
-      message += `*Notas:* ${notes.trim()}\n`;
+      message += `*Notas de cocina:* ${notes.trim()}\n`;
     }
 
     const whatsappUrl = `https://wa.me/${WHATSAPP_PHONE}?text=${encodeURIComponent(message)}`;
@@ -109,15 +147,13 @@ export default function CartDrawer({ isOpen, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Fondo oscuro con desenfoque */}
       <div
         onClick={onClose}
         className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
       />
 
-      {/* Panel lateral */}
-      <aside className="relative w-full max-w-md bg-soft-gray h-full shadow-2xl z-10 flex flex-col justify-between overflow-hidden animate-slideLeft">
-        {/* Cabecera del Drawer */}
+      <aside className="relative w-full max-w-md bg-soft-gray h-full shadow-2xl z-10 flex flex-col justify-between overflow-hidden">
+        {/* Cabecera */}
         <div className="bg-forest text-white px-5 py-4 flex items-center justify-between border-b-2 border-gold shrink-0">
           <div className="flex items-center gap-2.5">
             {step === 'checkout' ? (
@@ -220,7 +256,7 @@ export default function CartDrawer({ isOpen, onClose }) {
               </div>
             </>
           ) : (
-            /* PASO 2: Formulario de Entrega y GPS */
+            /* PASO 2: Formulario de Entrega, GPS y Pago */
             <div className="bg-white p-4 rounded-2xl shadow-xs border border-gray-100 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-forest mb-1">Tu Nombre *</label>
@@ -267,45 +303,145 @@ export default function CartDrawer({ isOpen, onClose }) {
               </div>
 
               {orderType === 'Delivery' && (
-                <div className="p-3.5 rounded-xl bg-soft-gray border border-gray-200 space-y-2.5">
-                  <button
-                    type="button"
-                    onClick={handleGetLocation}
-                    disabled={gpsStatus.loading}
-                    className="w-full flex items-center justify-center gap-2 bg-forest text-white font-bold text-xs py-2.5 px-3 rounded-xl hover:bg-gold hover:text-forest transition cursor-pointer"
-                  >
-                    {gpsStatus.loading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <MapPin className="w-4 h-4 text-gold" />
-                    )}
-                    <span>
-                      {mapsLink ? 'Actualizar ubicación GPS' : 'Usar mi ubicación GPS actual'}
-                    </span>
-                  </button>
-
-                  {gpsStatus.message && (
-                    <div
-                      className={`flex items-center gap-1.5 text-xs font-medium ${
-                        gpsStatus.error ? 'text-red-600' : 'text-green-700'
-                      }`}
+                <div className="p-3.5 rounded-xl bg-soft-gray border border-gray-200 space-y-4">
+                  {/* Ubicación y Dirección */}
+                  <div className="space-y-2.5">
+                    <label className="block text-xs font-bold text-forest">
+                      Ubicación de Entrega *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleGetLocation}
+                      disabled={gpsStatus.loading}
+                      className="w-full flex items-center justify-center gap-2 bg-forest text-white font-bold text-xs py-2.5 px-3 rounded-xl hover:bg-gold hover:text-forest transition cursor-pointer"
                     >
-                      {gpsStatus.error ? (
-                        <AlertCircle className="w-4 h-4 shrink-0" />
+                      {gpsStatus.loading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
-                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <MapPin className="w-4 h-4 text-gold" />
                       )}
-                      <span>{gpsStatus.message}</span>
-                    </div>
-                  )}
+                      <span>
+                        {mapsLink ? 'Actualizar ubicación GPS' : 'Usar mi ubicación GPS actual'}
+                      </span>
+                    </button>
 
-                  <textarea
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    rows={2}
-                    placeholder="Sector, calle, # de casa y referencia..."
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white focus:outline-none focus:border-gold text-xs resize-none"
-                  />
+                    {gpsStatus.message && (
+                      <div
+                        className={`flex items-center gap-1.5 text-xs font-medium ${
+                          gpsStatus.error ? 'text-red-600' : 'text-green-700'
+                        }`}
+                      >
+                        {gpsStatus.error ? (
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                        ) : (
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        )}
+                        <span>{gpsStatus.message}</span>
+                      </div>
+                    )}
+
+                    <textarea
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      rows={2}
+                      placeholder="Sector, calle, # de casa y referencia..."
+                      className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white focus:outline-none focus:border-gold text-xs resize-none"
+                    />
+                  </div>
+
+                  {/* Selector de Método de Pago */}
+                  <div className="pt-2 border-t border-gray-200 space-y-2.5">
+                    <label className="block text-xs font-bold text-forest">
+                      Método de Pago (Delivery)
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod('Efectivo')}
+                        className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl font-bold text-xs border-2 transition cursor-pointer ${
+                          paymentMethod === 'Efectivo'
+                            ? 'bg-forest text-white border-forest'
+                            : 'bg-white text-forest border-gray-300'
+                        }`}
+                      >
+                        <Banknote className="w-4 h-4 text-gold" />
+                        <span>Efectivo</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod('Verifone')}
+                        className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl font-bold text-xs border-2 transition cursor-pointer ${
+                          paymentMethod === 'Verifone'
+                            ? 'bg-forest text-white border-forest'
+                            : 'bg-white text-forest border-gray-300'
+                        }`}
+                      >
+                        <CreditCard className="w-4 h-4 text-gold" />
+                        <span>Verifone</span>
+                      </button>
+                    </div>
+
+                    {/* Opciones si elige Efectivo */}
+                    {paymentMethod === 'Efectivo' && (
+                      <div className="bg-white p-3 rounded-xl border border-gray-200 space-y-2.5 mt-2">
+                        <label className="block text-xs font-bold text-forest">
+                          ¿Necesitas cambio?
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNeedsChange(false);
+                              setCashAmount('');
+                            }}
+                            className={`py-1.5 px-2 rounded-lg font-bold text-xs border transition cursor-pointer ${
+                              !needsChange
+                                ? 'bg-gold/20 border-gold text-forest'
+                                : 'bg-gray-50 border-gray-200 text-gray-500'
+                            }`}
+                          >
+                            No, pago exacto
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setNeedsChange(true)}
+                            className={`py-1.5 px-2 rounded-lg font-bold text-xs border transition cursor-pointer ${
+                              needsChange
+                                ? 'bg-gold/20 border-gold text-forest'
+                                : 'bg-gray-50 border-gray-200 text-gray-500'
+                            }`}
+                          >
+                            Sí, necesito cambio
+                          </button>
+                        </div>
+
+                        {needsChange && (
+                          <div className="pt-1">
+                            <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                              ¿Con cuánto vas a pagar? (Mayor a RD${' '}
+                              {totalPrice.toLocaleString('es-DO')})
+                            </label>
+                            <input
+                              type="number"
+                              min={totalPrice + 1}
+                              value={cashAmount}
+                              onChange={(e) => setCashAmount(e.target.value)}
+                              placeholder="Ej. 1000 o 2000"
+                              className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:border-gold text-xs font-bold text-forest"
+                            />
+                            {Number(cashAmount) > totalPrice && (
+                              <p className="text-[11px] font-bold text-green-700 mt-1">
+                                Devuelta a recibir: RD${' '}
+                                {(Number(cashAmount) - totalPrice).toLocaleString('es-DO')}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -317,7 +453,7 @@ export default function CartDrawer({ isOpen, onClose }) {
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={2}
-                  placeholder="Ej. Sin cebolla, salsa aparte..."
+                  placeholder="Ej. Sin cebolla, salsa aparte, bien cocido..."
                   className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:border-gold text-xs resize-none"
                 />
               </div>
@@ -325,7 +461,7 @@ export default function CartDrawer({ isOpen, onClose }) {
           )}
         </div>
 
-        {/* Pie fijo del Drawer con Subtotal y Botón de Acción */}
+        {/* Pie fijo del Drawer */}
         {cart.length > 0 && (
           <div className="bg-white p-4 border-t border-gray-200 shadow-lg shrink-0 space-y-3">
             <div className="flex items-center justify-between text-forest">
